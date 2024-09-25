@@ -51,88 +51,11 @@ The ordering should be in the order of seats won in descending order.
 */
 
 
-select * from candidates;
-select * from results;
-
-
--- In the final result, we want party and the number of seats won. In order to come to that, first we need to get a table 
--- having the votes of each party in each constituency. We can join the 2 tables and fetch 'party', 'constituency_id', 'votes'
--- from the resultset of the join.
-
-
-select c.party, r.constituency_id, r.votes
-from candidates c
-join results r on c.id = r.candidate_id;
-
-
--- As we have got the required resultset, I would like to make it as a new table to keep the query easy to understand.
-
-
-create table t1 as 
-select c.party, r.constituency_id, r.votes
-from candidates c
-join results r on c.id = r.candidate_id;
-
-
--- New table t1 created with the required resultset
-
-select * from t1;
-
-
--- Now, we have arrived at the final stage. We have to compare the votes of each party in each constituency, so we need the constituency in column and the distinct 
--- parties in different columns and their votes in the respective rows. This will help us to easily compare the votes received by the two parties.
--- In order to get the table in above mentioned format, we will have to use the CROSSTAB(as I am using PostgreSQL). CROSSTAB is part of a PostgreSQL 
--- extension called "tablefunc". To call the crosstab function, you must first enable the tablefunc extension by executing the following SQL command
-
-
-create extension tablefunc;
-
-
---Base Query for CROSSTAB
-
-select constituency_id, party, max(votes) as votes
-from t1
-group by 1,2
-order by 1,2
-
-
-
--- Columns to be fetched in the result
-
-select distinct party from t1;
-
-
-
--- Using CROSSTAB
-
-
-select * 
-		from crosstab('select constituency_id, party, max(votes)
-						from t1
-						group by 1,2
-						order by 1,2', 'select distinct party from t1')
-		as (constituency_id int, Democratic  varchar, Republic varchar)
-
-
-
--- As we have got the format that we wanted, now we can use it to get to our final output
-			   
-
 with cte as 
-		(select * 
-		from crosstab('select constituency_id, party, max(votes)
-						from t1
-						group by 1,2
-						order by 1,2', 'select distinct party from t1')
-		as (constituency_id int, Democratic  varchar, Republic varchar)
-		),
-	 final_tab as 
-	    (select *
-		, case when democratic::int > republic::int then 'Democratic' else 'Republic' end as party
-		from cte)
+		(select *, rank() over(partition by r.constituency_id order by r.votes desc) as rk
+		from candidates c
+		join results r on c.id = r.candidate_id)
 select party, count(1) as seats_won
-from final_tab
-group by party;
-
-
-
+from cte 
+where rk = 1
+group by 1;
